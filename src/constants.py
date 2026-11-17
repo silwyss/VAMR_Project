@@ -13,3 +13,5 @@ SFM_OUTPUT_DIR = OUTPUT_DIR / 'SfM'
 # Parameters to build Map using SfM
 SFM_ROTATION_THRESHOLD_DEG = 3   # used to select frames from dataset (better than just every n-th frame)
 SFM_TRANSLATION_THRESHOLD = 0.04 # used to select frames from dataset (better than just every n-th frame)
+SFM_MAP_IMAGE_COUNT_THRESHOLD = 20 # Minimum number of images in a map (from COLMAP incremental map) to count it as valid
+SFM_MAP_POINT_COUNT_THRESHOLD = 300 # Minimum number of points in a map to count it as valid

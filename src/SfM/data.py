@@ -28,6 +28,24 @@ def interpolate_poses(t_gt, pos, quat, t_query) -> tuple[Rotation, np.ndarray, n
 
     return R_wc, p_wc, valid_mask
 
+def correct_poses_to_cam0(R_wc1: Rotation, p_wc1: np.ndarray) -> tuple[Rotation, np.ndarray]:
+    """The ground truth is aligned to the event camera (cam1) which is slightly offset to the RGB camera (cam0)
+    So we correct the Rotation and position accordingly."""
+    T_cn_cnm1 = load_cam0_to_cam1_transformation()
+    T_wc1 = np.zeros((p_wc1.shape[0], 4, 4))
+    T_wc1[:, :3, :] = np.c_[R_wc1.as_matrix(), p_wc1.reshape(p_wc1.shape[0], 3, 1)]
+    T_wc1[:, -1, -1] = 1
+    T_wc0 = T_wc1 @ T_cn_cnm1
+    R_wc0, p_wc0 = T_wc0[:, :3, :3], T_wc0[:, :3, 3]
+    return Rotation.from_matrix(R_wc0), p_wc0
+
+def load_cam0_to_cam1_transformation() -> np.ndarray:
+    with open(CALIBRATION_FILE, 'r') as yaml_file:
+        calibration_yaml = safe_load(yaml_file)
+        cam1_yaml = calibration_yaml['cam1']
+        T_cn_cnm1 = cam1_yaml['T_cn_cnm1']
+        return np.array(T_cn_cnm1)
+
 def load_calibration() -> list[CameraCalibration]:
     """First = cam0 (RGB camera), Second = cam1 (event camera)"""
     with open(CALIBRATION_FILE, 'r') as yaml_file:
