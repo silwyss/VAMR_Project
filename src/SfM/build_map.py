@@ -5,12 +5,12 @@ import pycolmap
 from pathlib import Path
 from scipy.spatial.transform import Rotation
 from src.models.Camera import CameraCalibration
-from src.constants import IMAGES_DIR, OUTPUT_DIR, SFM_MAP_IMAGE_COUNT_THRESHOLD, SFM_MAP_POINT_COUNT_THRESHOLD, SFM_OUTPUT_DIR, SFM_ROTATION_THRESHOLD_DEG, SFM_TRANSLATION_THRESHOLD
+from src.constants import IMAGES_DIR, OUTPUT_DIR, SFM_GT_MAP, SFM_MAP, SFM_MAP_IMAGE_COUNT_THRESHOLD, SFM_MAP_POINT_COUNT_THRESHOLD, SFM_OUTPUT_DIR, SFM_ROTATION_THRESHOLD_DEG, SFM_TRANSLATION_THRESHOLD
 from src.SfM.data import correct_poses_to_cam0, interpolate_poses, load_calibration, load_frames, load_groundtruth
 
 db_path = SFM_OUTPUT_DIR / 'database.db'
 
-def rebuild_map_data(calibration: CameraCalibration, filenames: np.ndarray, R_wc, p_wc: np.ndarray, opts):
+def select_frames(filenames: list, R_wc, p_wc: np.ndarray) -> tuple[list, list]:
     frames = [filenames[0]]
     held_out = []
     last = 0
@@ -23,9 +23,12 @@ def rebuild_map_data(calibration: CameraCalibration, filenames: np.ndarray, R_wc
             frames.append(filenames[i])
             continue
         held_out.append(filenames[i])
+    return frames, held_out
 
+def rebuild_map_data(calibration: CameraCalibration, filenames: np.ndarray, R_wc, p_wc: np.ndarray, opts):
+    frames, _ = select_frames(filenames, R_wc, p_wc)
     if os.path.isdir(SFM_OUTPUT_DIR):
-        shutil.rmtree(SFM_OUTPUT_DIR,  True)
+        shutil.rmtree(SFM_OUTPUT_DIR, True)
     os.mkdir(SFM_OUTPUT_DIR)
     camera_params = [f'{d}' for d in [calibration.intrinsics.fx, calibration.intrinsics.fy, calibration.intrinsics.u, calibration.intrinsics.v, calibration.distortion.k1, calibration.distortion.k2, calibration.distortion.p1, calibration.distortion.p2]]
     reader = pycolmap.ImageReaderOptions(camera_model='OPENCV', camera_params=','.join(camera_params))
@@ -54,6 +57,9 @@ def build_map():
     _align_incremental_models(name_to_idx, p_wc)
     
 def _triangulate_known_poses(name_to_idx: dict,  R_wc: Rotation, p_wc: np.ndarray, opts):
+    if os.path.isdir(SFM_GT_MAP):
+        shutil.rmtree(SFM_GT_MAP, True)
+
     db = pycolmap.Database.open(db_path)
     rec = pycolmap.Reconstruction()
     cam = db.read_all_cameras()[0]
@@ -71,15 +77,18 @@ def _triangulate_known_poses(name_to_idx: dict,  R_wc: Rotation, p_wc: np.ndarra
         rec.add_image_with_trivial_frame(img, cam_from_world)
 
     db.close()
-    tri = pycolmap.triangulate_points(rec, db_path, IMAGES_DIR, SFM_OUTPUT_DIR / 'known_poses', options=opts)
+    tri = pycolmap.triangulate_points(rec, db_path, IMAGES_DIR, SFM_GT_MAP, options=opts)
     print(tri.summary())
 
 def _align_incremental_models(name_to_idx: dict, p_wc: np.ndarray):
+    if os.path.isdir(SFM_MAP):
+        shutil.rmtree(SFM_MAP, True)
+
     maps = sorted(p for p in SFM_OUTPUT_DIR.iterdir() if p.is_dir() and p.name.isdigit())
-    i = 0
-    for map in maps:
+    for i, map in enumerate(maps):
         rec = pycolmap.Reconstruction(map.absolute())
         if len(rec.images) < SFM_MAP_IMAGE_COUNT_THRESHOLD or len(rec.points3D) < SFM_MAP_POINT_COUNT_THRESHOLD:
+            print(f'Model {i} failed because only {f'{len(rec.images)} images' if len(rec.images) < SFM_MAP_IMAGE_COUNT_THRESHOLD else f'{len(rec.points3D)} points'} were in the map.')
             continue
         names = [im.name for im in rec.images.values()]
         gt_centers = np.array([p_wc[name_to_idx[n]] for n in names])
@@ -89,7 +98,7 @@ def _align_incremental_models(name_to_idx: dict, p_wc: np.ndarray):
 
         print(rec.summary())
 
-        aligned_model_output = Path(SFM_OUTPUT_DIR / 'aligned' / str(i))
+        aligned_model_output = Path(SFM_MAP / str(i))
         aligned_model_output.mkdir(parents=True, exist_ok=True)
         rec.write(aligned_model_output)
         i += 1
