@@ -7,7 +7,8 @@ from pathlib import Path
 from scipy.spatial.transform import Rotation
 from src.models.Camera import CameraCalibration
 from src.constants import (CALIBRATION_FILE, IMAGES_DIR, SFM_CONFIG_FILE, SFM_GT_MAP, SFM_MAP, SFM_MAP_FRAMES_FILE,
-                           SFM_MAP_IMAGE_COUNT_THRESHOLD, SFM_MAP_MAX_ROTATION_ERROR_DEG, SFM_MAP_POINT_COUNT_THRESHOLD,
+                           SFM_MAP_IMAGE_COUNT_THRESHOLD, SFM_MAP_MAX_POSITION_ERROR_M, SFM_MAP_MAX_ROTATION_ERROR_DEG,
+                           SFM_MAP_POSITION_ERROR_PERCENTILE, SFM_MAP_POINT_COUNT_THRESHOLD,
                            SFM_OUTPUT_DIR, SFM_QUERY_FRAMES_FILE, SFM_ROTATION_THRESHOLD_DEG, SFM_SEQUENTIAL_OVERLAP,
                            SFM_TRANSLATION_THRESHOLD_M)
 from src.SfM.data import correct_poses_to_cam0, interpolate_poses, load_calibration, load_frames, load_groundtruth
@@ -146,7 +147,9 @@ def align_to_groundtruth(rec: pycolmap.Reconstruction, name_to_idx: dict, R_wc: 
 
     The transform is estimated from camera centres only. When the camera mostly rotates in place the
     centres are nearly collinear and the rotation about that line is unconstrained, so the aligned
-    orientations are checked against the GT as well before the transform is applied.
+    orientations are checked against the GT as well before the transform is applied. The RANSAC
+    alignment also tolerates outlier cameras, so a model that is only partly correct is caught by
+    checking a high percentile of the position error.
     Returns (transform, 'ok'), or (None, reason) if the alignment failed (rec is then unchanged)."""
     images = [im for im in rec.images.values() if im.name in name_to_idx]
     idx = np.array([name_to_idx[im.name] for im in images])
@@ -162,6 +165,14 @@ def align_to_groundtruth(rec: pycolmap.Reconstruction, name_to_idx: dict, R_wc: 
     if np.median(rot_err) > SFM_MAP_MAX_ROTATION_ERROR_DEG:
         return None, (f'aligned orientations disagree with the GT (median {np.median(rot_err):.1f} deg > '
                       f'{SFM_MAP_MAX_ROTATION_ERROR_DEG:g} deg), alignment rejected.')
+
+    # camera centres after the transform: C_aligned = s R C + t
+    M = sim3.matrix()
+    C_aligned = np.stack([im.projection_center() for im in images]) @ M[:, :3].T + M[:, 3]
+    pos_err = np.percentile(np.linalg.norm(C_aligned - p_wc[idx], axis=1), SFM_MAP_POSITION_ERROR_PERCENTILE)
+    if pos_err > SFM_MAP_MAX_POSITION_ERROR_M:
+        return None, (f'aligned camera positions disagree with the GT ({SFM_MAP_POSITION_ERROR_PERCENTILE}th percentile '
+                      f'{pos_err * 100:.1f} cm > {SFM_MAP_MAX_POSITION_ERROR_M * 100:g} cm), alignment rejected.')
 
     rec.transform(sim3)
     return sim3, 'ok'
