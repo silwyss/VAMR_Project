@@ -10,6 +10,7 @@ from src.constants import (CALIBRATION_FILE, IMAGES_DIR, SFM_CONFIG_FILE, SFM_GT
                            SFM_MAP_IMAGE_COUNT_THRESHOLD, SFM_MAP_MAX_POSITION_ERROR_M, SFM_MAP_MAX_ROTATION_ERROR_DEG,
                            SFM_MAP_POSITION_ERROR_PERCENTILE, SFM_MAP_POINT_COUNT_THRESHOLD,
                            SFM_OUTPUT_DIR, SFM_QUERY_FRAMES_FILE, SFM_ROTATION_THRESHOLD_DEG, SFM_SEQUENTIAL_OVERLAP,
+                           SFM_LOOP_DETECTION, SFM_VOCAB_TREE,
                            SFM_TRANSLATION_THRESHOLD_M)
 from src.SfM.data import correct_poses_to_cam0, interpolate_poses, load_calibration, load_frames, load_groundtruth
 
@@ -22,6 +23,7 @@ def map_config() -> dict:
         rotation_threshold_deg=SFM_ROTATION_THRESHOLD_DEG,
         translation_threshold_m=SFM_TRANSLATION_THRESHOLD_M,
         sequential_overlap=SFM_SEQUENTIAL_OVERLAP,
+        loop_detection=SFM_LOOP_DETECTION,
         calibration_file=CALIBRATION_FILE.relative_to(CALIBRATION_FILE.parents[1]).as_posix(),
     )
 
@@ -61,13 +63,16 @@ def rebuild_map_data(calibration: CameraCalibration, filenames: np.ndarray, R_wc
     frames, held_out = select_frames(filenames, R_wc, p_wc)
     if os.path.isdir(SFM_OUTPUT_DIR):
         shutil.rmtree(SFM_OUTPUT_DIR, True)
-    os.mkdir(SFM_OUTPUT_DIR)
+    SFM_OUTPUT_DIR.mkdir(parents=True)
     SFM_MAP_FRAMES_FILE.write_text('\n'.join(frames) + '\n')
     SFM_QUERY_FRAMES_FILE.write_text('\n'.join(held_out) + '\n')
     camera_params = [f'{d}' for d in [calibration.intrinsics.fx, calibration.intrinsics.fy, calibration.intrinsics.u, calibration.intrinsics.v, calibration.distortion.k1, calibration.distortion.k2, calibration.distortion.p1, calibration.distortion.p2]]
     reader = pycolmap.ImageReaderOptions(camera_model='OPENCV', camera_params=','.join(camera_params))
     pycolmap.extract_features(db_path, IMAGES_DIR, image_names=frames, camera_mode=pycolmap.CameraMode.SINGLE, reader_options=reader)
-    pycolmap.match_sequential(db_path, pairing_options=pycolmap.SequentialPairingOptions(overlap=SFM_SEQUENTIAL_OVERLAP))
+    pairing = pycolmap.SequentialPairingOptions(overlap=SFM_SEQUENTIAL_OVERLAP, loop_detection=SFM_LOOP_DETECTION)
+    if SFM_LOOP_DETECTION:
+        pairing.vocab_tree_path = SFM_VOCAB_TREE
+    pycolmap.match_sequential(db_path, pairing_options=pairing)
 
     pycolmap.incremental_mapping(db_path, IMAGES_DIR, SFM_OUTPUT_DIR, options=opts)
     # written last: only a complete build counts as current

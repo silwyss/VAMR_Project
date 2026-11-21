@@ -29,6 +29,10 @@ SFM_MAP_MAX_ROTATION_ERROR_DEG = 5.0 # Max. median orientation error of an align
 SFM_MAP_MAX_POSITION_ERROR_M = 0.10  # Max. position error of an aligned model vs. the GT at the percentile below
 SFM_MAP_POSITION_ERROR_PERCENTILE = 90 # Percentile used for the position check (catches partly broken models)
 SFM_SEQUENTIAL_OVERLAP = 15 # number of following keyframes each keyframe is matched against
+SFM_LOOP_DETECTION = True # additionally match visually similar non-neighbouring keyframes (vocabulary tree retrieval)
+SFM_VOCAB_TREE = ('https://github.com/colmap/colmap/releases/download/3.11.1/vocab_tree_faiss_flickr100K_words256K.bin;'
+                  'vocab_tree_faiss_flickr100K_words256K.bin;96ca8ec8ea60b1f73465aaf2c401fd3b3ca75cdba2d3c50d6a2f6f760f275ddc')
+                  # COLMAP's default SIFT vocab tree as 'url;filename;sha256' -> downloaded and cached automatically
 
 # Evaluation parameters
 EVAL_RECALL_THRESHOLDS = ((0.02, 2.0), (0.05, 5.0), (0.10, 10.0)) # (metres, degrees) pose-error thresholds for recall
